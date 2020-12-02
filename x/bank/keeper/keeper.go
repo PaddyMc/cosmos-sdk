@@ -13,6 +13,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/bank/exported"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+
+	"github.com/vardius/message-bus"
 )
 
 var _ Keeper = (*BaseKeeper)(nil)
@@ -45,6 +47,7 @@ type Keeper interface {
 	MarshalSupply(supplyI exported.SupplyI) ([]byte, error)
 	UnmarshalSupply(bz []byte) (exported.SupplyI, error)
 
+	MagicMessageBus(ctx sdk.Context) error
 	types.QueryServer
 }
 
@@ -56,11 +59,13 @@ type BaseKeeper struct {
 	cdc        codec.BinaryMarshaler
 	storeKey   sdk.StoreKey
 	paramSpace paramtypes.Subspace
+	messageBus messagebus.MessageBus
 }
 
 func NewBaseKeeper(
 	cdc codec.BinaryMarshaler, storeKey sdk.StoreKey, ak types.AccountKeeper, paramSpace paramtypes.Subspace,
 	blockedAddrs map[string]bool,
+	messageBus messagebus.MessageBus,
 ) BaseKeeper {
 
 	// set KeyTable if it has not already been set
@@ -68,13 +73,32 @@ func NewBaseKeeper(
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
 	}
 
+	baseSendKeeper := NewBaseSendKeeper(cdc, storeKey, ak, paramSpace, blockedAddrs)
+
 	return BaseKeeper{
-		BaseSendKeeper: NewBaseSendKeeper(cdc, storeKey, ak, paramSpace, blockedAddrs),
+		BaseSendKeeper: baseSendKeeper,
 		ak:             ak,
 		cdc:            cdc,
 		storeKey:       storeKey,
 		paramSpace:     paramSpace,
+		messageBus:     messageBus,
 	}
+}
+
+// MagicMessageBus listens for messages on the "bank" topic and processes messages in the same
+// way as the handler
+func (k BaseKeeper) MagicMessageBus(ctx sdk.Context) error {
+	msgServer := NewMsgServerImpl(k)
+
+	_ = k.messageBus.Subscribe(types.ModuleName, func(msg sdk.Msg) {
+		switch msg := msg.(type) {
+		case *types.MsgSend:
+			fmt.Println(msg)
+			_, _ = msgServer.Send(sdk.WrapSDKContext(ctx), msg)
+		}
+		fmt.Println(ctx)
+	})
+	return nil
 }
 
 // DelegateCoins performs delegation by deducting amt coins from an account with

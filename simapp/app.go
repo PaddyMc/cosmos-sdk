@@ -88,6 +88,8 @@ import (
 
 	// unnamed import of statik for swagger UI support
 	_ "github.com/cosmos/cosmos-sdk/client/docs/statik"
+
+	"github.com/vardius/message-bus"
 )
 
 const appName = "SimApp"
@@ -245,12 +247,17 @@ func NewSimApp(
 	// note replicate if you do not need to test core IBC or light clients.
 	scopedIBCMockKeeper := app.CapabilityKeeper.ScopeToModule(ibcmock.ModuleName)
 
+	// create message bus for inter-module communication
+	queueSize := 100
+	bus := messagebus.New(queueSize)
+
 	// add keepers
 	app.AccountKeeper = authkeeper.NewAccountKeeper(
 		appCodec, keys[authtypes.StoreKey], app.GetSubspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, maccPerms,
 	)
 	app.BankKeeper = bankkeeper.NewBaseKeeper(
 		appCodec, keys[banktypes.StoreKey], app.AccountKeeper, app.GetSubspace(banktypes.ModuleName), app.BlockedAddrs(),
+		bus,
 	)
 	stakingKeeper := stakingkeeper.NewKeeper(
 		appCodec, keys[stakingtypes.StoreKey], app.AccountKeeper, app.BankKeeper, app.GetSubspace(stakingtypes.ModuleName),
@@ -318,6 +325,20 @@ func NewSimApp(
 	)
 	// If evidence needs to be handled for the app, set routes in router here and seal
 	app.EvidenceKeeper = *evidenceKeeper
+
+	// Set up the magic message bus
+	ctx := app.BaseApp.NewUncachedContext(true, tmproto.Header{})
+	app.BankKeeper.MagicMessageBus(ctx)
+
+	// send a MsgSend message to the bank module
+	//addr1, _ := sdk.AccAddressFromBech32("cosmos1xm82mkw2jkwkdgq3r0cu8f92r9t2emm8m8xpuw")
+	//addr2, _ := sdk.AccAddressFromBech32("cosmos1xm82mkw2jkwkdgq3r0cu8f92r9t2emm8m8xpuu")
+	//msg := banktypes.NewMsgSend(
+	//	addr1,
+	//	addr2,
+	//	sdk.NewCoins(sdk.NewInt64Coin("stake", int64(10000))),
+	//)
+	//bus.Publish(banktypes.ModuleName, msg)
 
 	/****  Module Options ****/
 
